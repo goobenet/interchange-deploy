@@ -27,8 +27,22 @@ command -v gh >/dev/null || { echo "gh CLI not found — install it, then: gh au
 gh auth status >/dev/null 2>&1 || { echo "gh is not authenticated. Run: gh auth login"; exit 1; }
 
 # Only ship the artifact types customers install.
-mapfile -t FILES < <(find "$SRC" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.tar.zst' -o -name '*-Setup.exe' \) | sort)
-[[ ${#FILES[@]} -gt 0 ]] || { echo "no artifacts (*.deb, *.tar.zst, *-Setup.exe) found in $SRC"; exit 1; }
+mapfile -t FILES < <(find "$SRC" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.tar.zst' -o -name '*-Setup.exe' -o -name 'host-ptp.tar.gz' \) | sort)
+[[ ${#FILES[@]} -gt 0 ]] || { echo "no artifacts (*.deb, *.tar.zst, *-Setup.exe, host-ptp.tar.gz) found in $SRC"; exit 1; }
+
+# host-ptp.tar.gz ships shell scripts and systemd units that run on a Linux
+# host. Build it ON LINUX. `git archive` on a Windows checkout applies autocrlf
+# and silently emits CRLF, which makes the shebang a bad interpreter and puts
+# stray \r into unit values. Refuse to publish a CRLF kit.
+for f in "${FILES[@]}"; do
+  [[ "$(basename "$f")" == "host-ptp.tar.gz" ]] || continue
+  if tar -xzOf "$f" 2>/dev/null | grep -q $'\r'; then
+    echo "ERROR: $f contains CRLF line endings — it will not run on a Linux host." >&2
+    echo "       Rebuild it on Linux (or strip CR) before publishing." >&2
+    exit 1
+  fi
+  echo "  host-ptp.tar.gz: line endings verified LF"
+done
 
 echo "Publishing ${#FILES[@]} artifact(s) to $REPO @ $TAG"
 printf '  %s\n' "${FILES[@]##*/}"

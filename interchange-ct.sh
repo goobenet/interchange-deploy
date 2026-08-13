@@ -33,6 +33,10 @@ ARTIFACT_BASE="${ARTIFACT_BASE:-https://github.com/goobenet/interchange-deploy/r
 # Compiled into every shipped binary; a build without it rejects every license.
 readonly ISSUER_PUBKEY="02e412906f2a575d25f431899f970d6bb153224a4f0031e5ef9938f9f4ce7277"
 
+# host-PTP kit (only fetched when you choose --ptp install). Pinned like every
+# other artifact: this one runs as root on the hypervisor itself.
+readonly HOSTPTP_SHA="76f2ab4f38de6c2469f4fa1029b018d2465f594db2f52fe637253cc11ece1e50"
+
 # ─── PRODUCT MANIFEST ───────────────────────────────────────────────────────
 # key|template|template sha256|deb|deb sha256|binary sha256|service|port|ctid|hostname|aoip ip
 readonly PRODUCTS=(
@@ -280,10 +284,20 @@ fi
 if [[ "$PTP_CHOICE" == "install" ]]; then
   step "Installing the Interchange host-PTP kit on $PTP_NIC"
   warn "this replaces /etc/systemd/system/ptp4l@.service and phc2sys@.service on the HOST"
-  KIT=$(mktemp -d); if curl -fsSL --retry 2 -o "$KIT/host-ptp.tar.gz" "$ARTIFACT_BASE/host-ptp.tar.gz" 2>/dev/null; then
-    tar -xzf "$KIT/host-ptp.tar.gz" -C "$KIT" && bash "$KIT"/host-ptp/install.sh "$PTP_NIC" || warn "host-PTP install reported an error"
+  KIT=$(mktemp -d)
+  if curl -fsSL --retry 2 -o "$KIT/host-ptp.tar.gz" "$ARTIFACT_BASE/host-ptp.tar.gz" 2>/dev/null; then
+    GOT=$(sha256sum "$KIT/host-ptp.tar.gz" | awk '{print $1}')
+    if [[ "$GOT" != "$HOSTPTP_SHA" ]]; then
+      warn "host-ptp kit sha256 mismatch — refusing to run it"
+      warn "  expected $HOSTPTP_SHA"
+      warn "  got      $GOT"
+    else
+      tar -xzf "$KIT/host-ptp.tar.gz" -C "$KIT" \
+        && bash "$KIT"/host-ptp/install.sh "$PTP_NIC" \
+        || warn "host-PTP install reported an error"
+    fi
   else
-    warn "host-ptp kit is not published in this release — install it from the source repo:"
+    warn "host-ptp kit not available at $ARTIFACT_BASE — install it from the source repo:"
     warn "  packaging/host-ptp/install.sh $PTP_NIC"
   fi
   rm -rf "$KIT"

@@ -125,18 +125,28 @@ Two clocks are kept deliberately separate:
 
 ### Your grandmaster — use dedicated hardware
 
-**An AoIP network should have a purpose-built PTP grandmaster.** A GNSS/GPS-
-disciplined hardware clock gives you the three things software on a general-
-purpose server cannot:
+**An AoIP network should have a purpose-built PTP grandmaster.** What audio needs
+from it is a **metronome**: one stable frequency reference every device locks to,
+so nobody slips a sample. Dedicated hardware gives you what software on a
+general-purpose server cannot:
 
-- **Traceability** — a real clock class, not a free-running oscillator.
-- **A TAI timescale**, which keeps the whole system out of the ARB problem
-  described below.
-- **Stable holdover** — a disciplined oscillator rides out a GNSS outage; a
-  server's crystal, competing with scheduler jitter, does not.
+- **A stable oscillator** — a purpose-built clock, not a server crystal
+  competing with scheduler jitter and power management.
+- **Holdover** — it rides out a reference outage instead of drifting.
+- **A clock that isn't also doing something else** — no other workload can
+  preempt it.
 
 Most AoIP-capable switches, and every serious broadcast clock product, will do
 this. It is worth the rack unit.
+
+**An ARB (arbitrary) timescale is fine — expected, even.** Audio needs rate lock,
+not absolute time, and ARB grandmasters are normal in Livewire and Axia plants.
+You do not need a TAI-locked grandmaster to run audio correctly, and this
+software does not ask for one.
+
+TAI only matters if you need RTP timestamps to correspond to real wall-clock
+time across systems — ST 2110 video/audio alignment, or correlating streams
+between facilities. For audio transport on its own, it buys you nothing.
 
 ### Interchange never competes for the clock
 
@@ -145,22 +155,23 @@ Our products advertise **`priority1` = 130**. The IEEE 1588 default is 128 and
 configured master. It is the **clock of last resort** by design: deploying one
 onto your network cannot take the clock away from your studio grandmaster.
 
-It only becomes grandmaster when it is genuinely alone on the segment — and in
-that state it is an **arbitrary-timescale** clock, which is a fallback, not a
-goal. If you find an Interchange box acting as grandmaster, treat it as a signal
-that the network is missing a real one.
+It only becomes grandmaster when it is genuinely alone on the segment. That
+works — the audio stays rate-locked to it — but a general-purpose server is a
+mediocre metronome, so treat an Interchange box acting as grandmaster as a
+signal that the network wants a proper clock, not as a failure.
 
-The same applies in reverse: if some other device is acting as grandmaster on a
-free-running internal oscillator — a console, a node, an interface unit that
-elected itself because nothing better existed — everything downstream inherits
-an untraceable clock. Check what is actually mastering your segment:
+The same applies to any device that elects itself because nothing better exists:
+a console, a node, an interface unit. It will keep the plant running; it just
+won't hold as well as dedicated hardware. Check what is actually mastering your
+segment:
 
 ```bash
 pmc -u -b 0 'GET PARENT_DATA_SET' | grep grandmasterIdentity
 pmc -u -b 0 'GET TIME_PROPERTIES_DATA_SET' | grep ptpTimescale
 ```
 
-`ptpTimescale 0` means ARB — see the guard section below.
+`ptpTimescale 0` simply means ARB, which is normal for audio — see below for
+what that implies for the system calendar.
 
 ### Choosing a topology
 
@@ -212,17 +223,27 @@ installer against the **bridge** instead.
 still run; you simply don't get media-clock lock to a studio grandmaster.
 Choose `--ptp skip` (or `keep`) in the container deployer.
 
-### If your grandmaster runs an ARB timescale
+### Why the system clock stays on NTP under an ARB grandmaster
 
-Some Livewire/Axia devices announce an **arbitrary (non-TAI)** timescale. Slaving
-the system clock to one of those can step your host's wall clock to ~1970, which
-takes TLS, HTTPS and every container's timestamps down with it.
+This is the two-clock model working as intended, not a fault.
 
-The kit guards against this: while the selected grandmaster is ARB, the system
-clock is **held on NTP** and PTP discipline is deliberately withheld — media
-stays rate-synced, the calendar stays correct. If PTP appears not to be
-disciplining the clock, check the grandmaster's timescale before assuming a
-fault. A TAI-timescale grandmaster is preferable where you have the choice.
+An ARB grandmaster counts from an arbitrary origin. It is a perfectly good
+metronome — which is all audio wants — but its numbers are not UTC. Slaving
+`CLOCK_REALTIME` to one would step the host's wall clock to something like 1970
+and take TLS, HTTPS, log timestamps and HLS `PROGRAM-DATE-TIME` down with it.
+
+So the kit deliberately splits them:
+
+- **Media clock — PTP**, following the AoIP grandmaster. Rate lock, sample
+  alignment, no slips. ARB is fine here.
+- **Calendar — NTP**, always. Real UTC for timestamps, certificates and
+  `PROGRAM-DATE-TIME`, which is what makes HLS output correlate with everything
+  else.
+
+While the selected grandmaster is ARB, PTP discipline of `CLOCK_REALTIME` is
+withheld and the calendar stays on NTP. **That is the correct outcome** — you get
+the metronome without letting it wreck the calendar. If you see PTP declining to
+discipline the system clock, this is almost certainly why, and nothing is wrong.
 
 ### Already running PTP?
 

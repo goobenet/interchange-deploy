@@ -62,6 +62,11 @@ warn(){ echo "${C_WARN}  !${C_OFF} $*" >&2; }
 die(){  echo "${C_ERR}  ✖ $*${C_OFF}" >&2; exit 1; }
 step(){ echo; echo "${C_INF}══ $* ${C_OFF}"; }
 
+# `set -e` kills the script with no output at all, which is the worst possible
+# failure for something a customer runs once. Anything that exits without going
+# through die() is a bug in this script — say so, and say where.
+trap 'rc=$?; [[ $rc -ne 0 ]] && printf "\n%s  ✖ unexpected failure (exit %s) at line %s of %s%s\n%s    This is a bug in the deployer, not your host. Please report it to info@optimizedmedia.net%s\n" "$C_ERR" "$rc" "$LINENO" "${BASH_SOURCE[0]##*/}" "$C_OFF" "$C_ERR" "$C_OFF" >&2; exit $rc' ERR
+
 usage(){ sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; cat <<EOF
 
 Options:

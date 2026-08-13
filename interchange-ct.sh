@@ -60,6 +60,11 @@ warn(){ echo "${C_WARN}  !${C_OFF} $*" >&2; }
 die(){  echo "${C_ERR}  ✖ $*${C_OFF}" >&2; exit 1; }
 step(){ echo; echo "${C_INF}══ $* ${C_OFF}"; }
 
+# `set -e` kills the script with no output at all, which is the worst possible
+# failure for something a customer runs once. Anything that exits without going
+# through die() is a bug in this script — say so, and say where.
+trap 'rc=$?; [[ $rc -ne 0 ]] && printf "\n%s  ✖ unexpected failure (exit %s) at line %s of %s%s\n%s    This is a bug in the deployer, not your host. Please report it to info@optimizedmedia.net%s\n" "$C_ERR" "$rc" "$LINENO" "${BASH_SOURCE[0]##*/}" "$C_OFF" "$C_ERR" "$C_OFF" >&2; exit $rc' ERR
+
 usage(){ cat <<EOF
 Interchange LXC/CT deployer — run on the Proxmox host as root.
 
@@ -138,8 +143,12 @@ ok "product: $PRODUCT"
 step "PTP / clock discipline (host-level)"
 PTP_STATE="none"; PTP_DETAIL=""
 HAVE_BIN=0; command -v ptp4l >/dev/null && HAVE_BIN=1
-ACTIVE_UNITS=$(systemctl list-units --type=service --state=running --no-legend 'ptp4l*' 'phc2sys*' 2>/dev/null | awk '{print $1}' | tr '\n' ' ')
-ENABLED_UNITS=$(systemctl list-unit-files --no-legend 'ptp4l*' 'phc2sys*' 2>/dev/null | awk '$2=="enabled"{print $1}' | tr '\n' ' ')
+# `systemctl list-unit-files` exits 1 when the pattern matches NOTHING (unlike
+# list-units, which exits 0). Under `set -e` + `pipefail` that killed the script
+# silently on any host with no PTP installed — i.e. exactly the hosts that most
+# need this step. Both are guarded; "no match" is a normal answer here.
+ACTIVE_UNITS=$(systemctl list-units --type=service --state=running --no-legend 'ptp4l*' 'phc2sys*' 2>/dev/null | awk '{print $1}' | tr '\n' ' ' || true)
+ENABLED_UNITS=$(systemctl list-unit-files --no-legend 'ptp4l*' 'phc2sys*' 2>/dev/null | awk '$2=="enabled"{print $1}' | tr '\n' ' ' || true)
 RUNNING_PROCS=$(pgrep -a 'ptp4l|phc2sys' 2>/dev/null | head -3 || true)
 OURS=0; [[ -d /etc/interchange/host-ptp ]] && compgen -G "/etc/interchange/host-ptp/*.mode" >/dev/null 2>&1 && OURS=1
 

@@ -12,6 +12,40 @@ product source is not public.
 
 ---
 
+## Before you start — requirements
+
+Both paths need root on the Proxmox host, a bridge on your AoIP network, a
+bridge with internet access, outbound HTTPS, and roughly 8 GB of storage per
+product.
+
+| | Container (LXC) | Virtual machine |
+|---|---|---|
+| **Proxmox VE** | **8.4 or newer** (9.x recommended) | 8.x or 9.x |
+| **RAM** | 1 GB | 2 GB |
+| **Also needs** | — | a storage with the **`snippets`** content type |
+
+**Containers are recommended for audio-over-IP**, because a container inherits
+the host's disciplined system clock and a VM cannot. See [Which one?](#which-one)
+and [Clocking and PTP](#clocking-and-ptp).
+
+Two things that catch people out, both checked up front by the deployers so you
+find out immediately rather than part-way through:
+
+- **Proxmox older than 8.4 cannot create our containers.** Proxmox validates a
+  container's distro release against a table in its own libraries; our templates
+  are Debian 13 (trixie) and an older Proxmox refuses them with
+  `Unsupported debian version '13.6'`. That is a limit in Proxmox, not the
+  template, and nothing in the template avoids it. **On an older host, deploy a
+  VM instead** — Proxmox does not inspect a VM's guest OS, so Debian 13 runs
+  fine there. If you specifically need containers on an older host, contact us
+  about a Debian 12 template.
+- **The `snippets` content type is not enabled by default**, and the VM path
+  needs it to install the product into the guest. The VM deployer offers to
+  enable it for you — a one-line, reversible change to a directory storage. The
+  container path does not need it at all.
+
+---
+
 ## Deploy on Proxmox VE — one line
 
 Run on the **Proxmox host**, as root. Two deployers, deliberately separate —
@@ -254,29 +288,6 @@ templates, so letting it take over would replace yours and start a second
 `keep` unless you specifically want us to manage it.
 
 ---
-
-## Requirements
-
-Both paths need root on the Proxmox host, a bridge on your AoIP network, a
-bridge with internet access, outbound HTTPS, and roughly 8 GB of storage per
-product.
-
-**Containers** — **Proxmox VE 8.4 or newer** (9.x recommended), 1 GB RAM.
-
-> Proxmox validates a container's distro release against a table in its own
-> libraries. Our container templates are Debian 13 (trixie), and a Proxmox
-> release older than trixie refuses to create them:
-> `Unsupported debian version '13.6'`. That is a limit in Proxmox, not in the
-> template, and nothing in the template can work around it. The deployer checks
-> for this up front and tells you before downloading anything.
->
-> **On an older Proxmox, deploy a VM instead** — Proxmox does not inspect a VM's
-> guest OS, so Debian 13 runs fine there. If you need containers specifically on
-> an older host, contact us about a Debian 12 template.
-
-**Virtual machines** — Proxmox VE 8.x or 9.x, 2 GB RAM, and a storage with the
-**`snippets`** content type enabled (the deployer offers to enable it; it is not
-on by default).
 
 ## Support
 

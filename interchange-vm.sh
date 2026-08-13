@@ -152,6 +152,29 @@ guess_aoip_bridge(){
 }
 guess_mgmt_bridge(){ ip -4 route show default 2>/dev/null | awk '{print $5}' | head -1; }
 
+# ── snippets storage ────────────────────────────────────────────────────────
+# Cloud-init user-data is delivered via a "snippet", which needs a storage with
+# the `snippets` content type. That is NOT enabled by default: a stock Proxmox
+# `local` is `iso,vztmpl,backup`. Rather than fail, we offer to add it — it is a
+# one-line, reversible change to a directory storage and costs nothing.
+snippet_store(){ pvesm status --content snippets 2>/dev/null | awk 'NR>1 && $3=="active"{print $1; exit}'; }
+storage_content(){ awk -v s="$1" '
+    /^[a-z]+:[[:space:]]/{cur=$2}
+    cur==s && /^[[:space:]]*content[[:space:]]/{ $1=""; gsub(/^[[:space:]]+/,""); print; exit }
+  ' /etc/pve/storage.cfg; }
+dir_storages(){ awk '/^dir:[[:space:]]/{print $2}' /etc/pve/storage.cfg; }
+
+enable_snippets(){ # prints the storage name on success, nothing on failure
+  local s cur
+  for s in $(dir_storages); do
+    pvesm status --storage "$s" &>/dev/null || continue
+    cur=$(storage_content "$s"); [[ -n "$cur" ]] || continue
+    [[ "$cur" == *snippets* ]] && { echo "$s"; return 0; }
+    if pvesm set "$s" --content "${cur},snippets" >/dev/null 2>&1; then echo "$s"; return 0; fi
+  done
+  return 1
+}
+
 ask(){ # ask <prompt> <default> <varname>
   local p=$1 d=$2 v=$3 a
   if [[ $ASSUME_YES -eq 1 ]]; then printf -v "$v" '%s' "$d"; return; fi
@@ -302,7 +325,22 @@ ok "cloud-init configured"
 # The .deb is served to the guest from this host over a short-lived HTTP server
 # on the management bridge, so the guest never needs access to our repository.
 step "Provisioning"
-SNIPPET_STORE=$(pvesm status --content snippets 2>/dev/null | awk 'NR==2{print $1}')
+SNIPPET_STORE=$(snippet_store)
+if [[ -z "$SNIPPET_STORE" ]]; then
+  warn "no storage on this host has the 'snippets' content type enabled."
+  echo  "    Cloud-init needs it to install the product into the VM. This is a stock"
+  echo  "    Proxmox default, not a fault — 'local' normally ships as iso,vztmpl,backup."
+  echo  "    Fix: add 'snippets' to a directory storage's content types. Reversible,"
+  echo  "    affects nothing else, and is what the Proxmox UI does under"
+  echo  "    Datacenter > Storage > Edit > Content."
+  DO_IT=y
+  [[ $ASSUME_YES -eq 1 ]] || { read -r -p "  Enable snippets now? [Y/n]: " DO_IT </dev/tty || DO_IT=y; }
+  if [[ "${DO_IT:-y}" =~ ^[Yy]$|^$ ]]; then
+    SNIPPET_STORE=$(enable_snippets || true)
+    [[ -n "$SNIPPET_STORE" ]] && ok "enabled snippets on storage '$SNIPPET_STORE'" \
+                              || warn "could not enable snippets automatically"
+  fi
+fi
 HOSTIP=$(ip -4 -o addr show "$MGMT_BRIDGE" | awk '{print $4}' | cut -d/ -f1 | head -1)
 [[ -n "$HOSTIP" ]] || die "could not determine this host's IP on $MGMT_BRIDGE"
 
@@ -331,8 +369,18 @@ EOF
   trap 'kill $HTTP_PID 2>/dev/null || true; rm -rf "$WORK"' EXIT
   info "serving $DEB_NAME to the guest on $HOSTIP:$PORT_HTTP (temporary, 15 min max)"
 else
-  warn "no snippets-capable storage — the VM will be created WITHOUT the product installed."
-  warn "install it by hand:  scp $DEB_NAME <vm>:/tmp/ && ssh <vm> apt-get install -y /tmp/$DEB_NAME"
+  # Keep the verified artifact somewhere durable — $WORK is removed on exit, so
+  # telling the operator to scp a file that no longer exists helps nobody.
+  KEEP="/var/lib/vz/template/cache/$DEB_NAME"
+  cp -f "$DEB_LOCAL" "$KEEP" 2>/dev/null && MANUAL_DEB="$KEEP" || MANUAL_DEB=""
+  warn "the VM will be created WITHOUT the product installed."
+  if [[ -n "$MANUAL_DEB" ]]; then
+    echo "    The verified package is kept at:"
+    echo "      $MANUAL_DEB"
+    echo "    Once the VM has booted and you know its management IP:"
+    echo "      scp $MANUAL_DEB root@<vm-ip>:/tmp/"
+    echo "      ssh root@<vm-ip> 'apt-get update && apt-get install -y /tmp/$DEB_NAME && systemctl enable --now $SERVICE'"
+  fi
 fi
 
 if [[ $START_VM -eq 1 ]]; then
@@ -390,5 +438,10 @@ ${C_OK}════════════════════════�
       packaging/host-ptp/install.sh <aoip-nic> on the PROXMOX HOST (not the VM).
 
 EOF
-[[ -n "${SNIPPET_STORE:-}" ]] || warn "product NOT installed — see the manual step above"
+if [[ -z "${SNIPPET_STORE:-}" ]]; then
+  warn "PRODUCT NOT INSTALLED — this VM is a bare Debian 13 until you install it."
+  [[ -n "${MANUAL_DEB:-}" ]] && warn "  package ready at: $MANUAL_DEB"
+  warn "  or destroy it (qm destroy $VMID --purge), enable snippets, and re-run."
+  warn "  Deploying as an LXC container instead avoids this entirely — see interchange-ct.sh"
+fi
 exit 0

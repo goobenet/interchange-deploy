@@ -108,5 +108,9 @@ grandmaster and never touches the system wall clock.
 
 ## Support
 
-Contact Optimized Media Group with your Install ID and the output of
-`systemctl status hls2aes67` (or `aes672hls`) from inside the VM.
+**info@optimizedmedia.net**
+
+Include your Install ID and the output of `systemctl status hls2aes67` (or
+`aes672hls`) from inside the VM or container.
+
+To request a license, send us the **Install ID** from the Configuration page.

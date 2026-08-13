@@ -128,7 +128,43 @@ step "Preflight"
 [[ $EUID -eq 0 ]] || die "run as root on the Proxmox host"
 command -v pct >/dev/null || die "'pct' not found — this must run on a Proxmox VE host"
 for t in curl sha256sum awk; do command -v $t >/dev/null || die "missing tool: $t"; done
-ok "Proxmox VE $(pveversion 2>/dev/null | sed 's/pve-manager\///;s/ .*//' || echo '?'), running as root"
+PVEVER=$(pveversion 2>/dev/null | sed 's/pve-manager\///;s/\/.*//' || echo '?')
+ok "Proxmox VE $PVEVER, running as root"
+
+# Our container templates are Debian 13 (trixie). Proxmox validates a container's
+# distro release against a table in its own perl libs and REFUSES to create one
+# it does not recognise ("Unsupported debian version '13.6'"). PVE releases older
+# than trixie itself cannot create these containers at all — nothing about the
+# template can work around it. Detect it here rather than after a 247 MB
+# download and a failed create.
+readonly TEMPLATE_DEBIAN_MAJOR=13
+DEBPM=/usr/share/perl5/PVE/LXC/Setup/Debian.pm
+if [[ -r "$DEBPM" ]]; then
+  PVE_MAXDEB=$(grep -oE 'DEBIAN_MAXIMUM_RELEASE[^0-9]*[0-9]+' "$DEBPM" 2>/dev/null | grep -oE '[0-9]+$' | head -1)
+  KNOWS_TRIXIE=$(grep -c 'trixie' "$DEBPM" 2>/dev/null || true)
+  if [[ -n "$PVE_MAXDEB" ]] && (( PVE_MAXDEB < TEMPLATE_DEBIAN_MAJOR )) && (( KNOWS_TRIXIE == 0 )); then
+    echo >&2
+    die "this Proxmox version cannot create Debian ${TEMPLATE_DEBIAN_MAJOR} containers.
+
+  Proxmox VE $PVEVER validates a container's distro release and refuses anything
+  newer than Debian $PVE_MAXDEB. Our container templates are Debian ${TEMPLATE_DEBIAN_MAJOR} (trixie), so
+  'pct create' would fail with: Unsupported debian version '13.6'.
+
+  This is a limit in Proxmox itself — no template setting avoids it.
+
+  Two ways forward, both fine:
+
+    1. Deploy a VM instead. Proxmox does not inspect a VM's guest OS, so the
+       Debian 13 image works on this host today:
+         bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/goobenet/interchange-deploy/main/interchange-vm.sh)\"
+
+    2. Upgrade Proxmox to a release that knows trixie (PVE 8.4+ / 9.x), then
+       re-run this script.
+
+  If neither is possible, contact info@optimizedmedia.net — we can look at
+  building a Debian 12 container template for older hosts."
+  fi
+fi
 
 if [[ -z "$PRODUCT" ]]; then echo; echo "$PRODUCT_LABELS"; echo; ask "Product to deploy" "gateway" PRODUCT; fi
 ROW=""; for r in "${PRODUCTS[@]}"; do [[ "${r%%|*}" == "$PRODUCT" ]] && ROW="$r"; done

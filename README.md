@@ -257,10 +257,26 @@ templates, so letting it take over would replace yours and start a second
 
 ## Requirements
 
-- Proxmox VE 8 or 9, with `qm` available and root access
-- A bridge on your AoIP network and one with internet access
-- ~8 GB storage and 2 GB RAM per product VM
-- Outbound HTTPS on the host, to fetch the Debian cloud image
+Both paths need root on the Proxmox host, a bridge on your AoIP network, a
+bridge with internet access, outbound HTTPS, and roughly 8 GB of storage per
+product.
+
+**Containers** — **Proxmox VE 8.4 or newer** (9.x recommended), 1 GB RAM.
+
+> Proxmox validates a container's distro release against a table in its own
+> libraries. Our container templates are Debian 13 (trixie), and a Proxmox
+> release older than trixie refuses to create them:
+> `Unsupported debian version '13.6'`. That is a limit in Proxmox, not in the
+> template, and nothing in the template can work around it. The deployer checks
+> for this up front and tells you before downloading anything.
+>
+> **On an older Proxmox, deploy a VM instead** — Proxmox does not inspect a VM's
+> guest OS, so Debian 13 runs fine there. If you need containers specifically on
+> an older host, contact us about a Debian 12 template.
+
+**Virtual machines** — Proxmox VE 8.x or 9.x, 2 GB RAM, and a storage with the
+**`snippets`** content type enabled (the deployer offers to enable it; it is not
+on by default).
 
 ## Support
 

@@ -123,6 +123,35 @@ guest_mgmt_ip(){ # guest_mgmt_ip <vmid> <aoip-ip-without-cidr>
     | grep -v '^127\.' | grep -vx "$2" | head -1
 }
 
+# ── host enumeration ────────────────────────────────────────────────────────
+# Defaults are *discovered*, not assumed. A hardcoded default that is already
+# taken is worse than no default: it reads as a recommendation and then fails.
+next_free_vmid(){ # next_free_vmid <preferred>
+  local want=$1 used id
+  used=" $( { qm list 2>/dev/null | awk 'NR>1{print $1}'; pct list 2>/dev/null | awk 'NR>1{print $1}'; } | tr '\n' ' ' ) "
+  [[ "$used" != *" $want "* ]] && { echo "$want"; return; }
+  for (( id=want; id<=999999; id++ )); do
+    [[ "$used" != *" $id "* ]] && { echo "$id"; return; }
+  done
+  echo "$want"
+}
+
+list_storages(){ # storages that can hold VM disks
+  pvesm status --content images 2>/dev/null | awk 'NR>1 && $3=="active"{print $1}'
+}
+
+list_bridges(){ ip -br link show type bridge 2>/dev/null | awk '{print $1}' | grep -v '^fwbr'; }
+
+# The AoIP bridge is the one WITHOUT a default route — audio networks are
+# gateway-less. If exactly one such bridge exists it is almost certainly it.
+guess_aoip_bridge(){
+  local defbr b out=""
+  defbr=$(ip -4 route show default 2>/dev/null | awk '{print $5}' | head -1)
+  for b in $(list_bridges); do [[ "$b" != "$defbr" ]] && out="${out}${b} "; done
+  echo "${out%% *}"
+}
+guess_mgmt_bridge(){ ip -4 route show default 2>/dev/null | awk '{print $5}' | head -1; }
+
 ask(){ # ask <prompt> <default> <varname>
   local p=$1 d=$2 v=$3 a
   if [[ $ASSUME_YES -eq 1 ]]; then printf -v "$v" '%s' "$d"; return; fi
@@ -150,13 +179,25 @@ ok "product: $PRODUCT  ($DEB_NAME)"
 
 # ─── gather settings ────────────────────────────────────────────────────────
 step "Settings"
-[[ -n "$VMID"     ]] || ask "VM ID"                     "$D_VMID" VMID
+# Discover sane defaults from THIS host before offering any of them.
+SUGGEST_VMID=$(next_free_vmid "$D_VMID")
+[[ "$SUGGEST_VMID" != "$D_VMID" ]] && info "VM $D_VMID is taken — suggesting $SUGGEST_VMID"
+AVAIL_STOR=$(list_storages | tr '\n' ' ')
+AVAIL_BR=$(list_bridges | tr '\n' ' ')
+grep -qw "$STORAGE" <<<"$AVAIL_STOR" || STORAGE=$(list_storages | head -1)
+G_AOIP=$(guess_aoip_bridge); G_MGMT=$(guess_mgmt_bridge)
+[[ -n "$G_AOIP" ]] && AOIP_BRIDGE="$G_AOIP"
+[[ -n "$G_MGMT" ]] && MGMT_BRIDGE="$G_MGMT"
+
+[[ -n "$VMID"     ]] || ask "VM ID"                     "$SUGGEST_VMID" VMID
 [[ -n "$HOSTNAME" ]] || ask "Hostname"                  "$D_HOST" HOSTNAME
 [[ $ASSUME_YES -eq 1 ]] || {
   ask "Cores"                                           "$CORES"   CORES
   ask "Memory (MB)"                                     "$MEMORY"  MEMORY
   ask "Disk (GB)"                                       "$DISK"    DISK
+  echo "    available storage: ${AVAIL_STOR:-none found}"
   ask "VM disk storage"                                 "$STORAGE" STORAGE
+  echo "    bridges on this host: ${AVAIL_BR:-none found}   (AoIP = the gateway-less one)"
   ask "AoIP bridge (audio network)"                     "$AOIP_BRIDGE" AOIP_BRIDGE
 }
 [[ -n "$AOIP_IP" ]] || ask "AoIP address (CIDR, no gateway — AoIP is multicast)" "$D_AOIP" AOIP_IP
@@ -166,7 +207,7 @@ step "Settings"
   [[ "$MGMT_IP" != "dhcp" ]] && ask "Management gateway" "$MGMT_GW"    MGMT_GW
 }
 
-qm status "$VMID" &>/dev/null && die "VM $VMID already exists — pick another id"
+qm status "$VMID" &>/dev/null && die "VM $VMID already exists — next free id is $(next_free_vmid "$VMID")"
 pvesm status --storage "$STORAGE" &>/dev/null || die "storage '$STORAGE' not found"
 for b in "$AOIP_BRIDGE" "$MGMT_BRIDGE"; do
   ip link show "$b" &>/dev/null || die "bridge '$b' does not exist on this host"

@@ -1,0 +1,13 @@
+# Release artifacts are uploaded as GitHub release ASSETS, never committed.
+# GitHub hard-limits committed files at 100 MB and the LXC templates are ~247 MB;
+# a large blob in history is painful to remove. publish-release.sh uploads them.
+*.deb
+*.tar.zst
+*-Setup.exe
+SHA256SUMS
+artifacts/
+
+# Never in this repo: product source, keys, credentials.
+*.age
+*passphrase*
+*.pub

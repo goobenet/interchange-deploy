@@ -14,28 +14,51 @@ product source is not public.
 
 ## Deploy on Proxmox VE — one line
 
-Run on the **Proxmox host**, as root:
+Run on the **Proxmox host**, as root. Two deployers, deliberately separate —
+pick the one that matches how you want the clock handled.
+
+### Container (LXC) — recommended for AoIP
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/goobenet/interchange-deploy/main/interchange-ct.sh)"
+```
+
+### Virtual machine
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/goobenet/interchange-deploy/main/interchange-vm.sh)"
 ```
 
-It asks which product to deploy, then for the VM id, hostname, resources, and
-network — every prompt has a sensible default, so pressing Enter throughout
-gives a working deployment.
+Either asks which product to deploy, then for the id, hostname, resources and
+network. Every prompt has a default discovered from *your* host — free id, real
+storage, actual bridges — so pressing Enter throughout gives a working
+deployment.
 
-It creates a Debian 13 cloud-init VM, installs the product and its dependencies,
-and prints the control-UI URL when it's done.
+### Which one?
+
+**A container shares the host's kernel, and therefore the host's system clock.**
+Discipline the clock once on the host and every container inherits it. That is
+the single biggest reason to prefer a container for audio-over-IP.
+
+**A virtual machine has its own kernel and its own clock.** It must run its own
+`ptp4l` against a virtual NIC, and virtual NICs have no PTP hardware clock — so
+a VM will not achieve a tight media-clock lock, no matter how the host is
+configured. VMs are the right choice when you want hard isolation, a different
+kernel, or snapshot/migration behaviour, and are perfectly usable where the
+audio path tolerates a softer clock.
+
+The container deployer additionally asks before touching PTP on your host, and
+defaults to leaving whatever you already run alone. See **Clocking and PTP**.
 
 ### Non-interactive
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/goobenet/interchange-deploy/main/interchange-vm.sh
-chmod +x interchange-vm.sh
-./interchange-vm.sh --product gateway --vmid 970 --aoip-ip 192.168.24.222/24 --yes
+curl -fsSLO https://raw.githubusercontent.com/goobenet/interchange-deploy/main/interchange-ct.sh
+chmod +x interchange-ct.sh
+./interchange-ct.sh --product gateway --ctid 960 --aoip-ip 192.168.24.220/24 --ptp keep --yes
 ```
 
-`--help` lists every option.
+`--help` lists every option on both scripts.
 
 ---
 
@@ -87,15 +110,88 @@ alongside the release it points at.
 
 ---
 
-## PTP / clocking
+## Clocking and PTP
 
-PTP is **host-managed**, not configured inside the VM. If your Proxmox host
-isn't already a PTP node on the AoIP segment, set it up there.
+PTP is **host-managed**. You do not run `ptp4l` inside a container — an
+unprivileged container cannot set the clock anyway, and it doesn't need to: it
+inherits the host's.
 
-The media clock (AoIP PTP) and the system calendar (NTP) are deliberately
-separate: the calendar always follows NTP so timestamps, TLS and HLS
-`PROGRAM-DATE-TIME` stay correct, while the media clock follows the AoIP
-grandmaster and never touches the system wall clock.
+Two clocks are kept deliberately separate:
+
+- **Calendar — always NTP.** Timestamps, TLS certificate validity and HLS
+  `PROGRAM-DATE-TIME` depend on real UTC.
+- **Media clock — AoIP PTP.** Follows the grandmaster and never steps the
+  system wall clock.
+
+### Choosing a topology
+
+This is the part people get wrong, so here are the real options.
+
+**1. Dedicated, non-bridged NIC — best accuracy.**
+A second physical NIC on the AoIP network, not enslaved to any bridge, used only
+for PTP. Hardware timestamping, tight lock.
+
+```bash
+./host-ptp/install.sh enp1s0
+```
+
+The catch: dedicating a physical port to PTP is often impractical on a
+hypervisor — consolidating hardware is usually the reason you're running one.
+If that's your situation, use option 2.
+
+**2. Bind PTP to the bridge — the practical default.**
+Point PTP at the **bridge** (`vmbr1`), not at the physical port beneath it.
+
+```bash
+./host-ptp/install.sh vmbr1
+```
+
+The bridge is a real L3 interface and does receive the grandmaster's
+Announce/Sync multicast, so PTP participates in BMCA and genuinely locks.
+A bridge has no PTP hardware clock, so this is software timestamping — looser
+than option 1, and completely serviceable for a receive-side or
+stream-conversion box. No NIC sacrificed.
+
+**3. ⚠ The trap: binding PTP to a bridge *slave*.**
+Pointing PTP at the physical port when that port is enslaved to a bridge
+(`nic1` inside `vmbr1`) **looks** right and silently never works. A bridge slave
+does not deliver the multicast to a socket bound to it, so `ptp4l` sits in
+`LISTENING` forever, `phc2sys` waits for a lock that never arrives, and the host
+quietly stays on NTP.
+
+You get neither hardware timestamping nor a lock — the worst of both. Check for
+it with:
+
+```bash
+pmc -u -b 0 'GET PORT_DATA_SET' | grep portState
+```
+
+`LISTENING` that never becomes `SLAVE` means you have hit this. Re-run the
+installer against the **bridge** instead.
+
+**4. No PTP at all.** Perfectly valid. The host stays on NTP and the products
+still run; you simply don't get media-clock lock to a studio grandmaster.
+Choose `--ptp skip` (or `keep`) in the container deployer.
+
+### If your grandmaster runs an ARB timescale
+
+Some Livewire/Axia devices announce an **arbitrary (non-TAI)** timescale. Slaving
+the system clock to one of those can step your host's wall clock to ~1970, which
+takes TLS, HTTPS and every container's timestamps down with it.
+
+The kit guards against this: while the selected grandmaster is ARB, the system
+clock is **held on NTP** and PTP discipline is deliberately withheld — media
+stays rate-synced, the calendar stays correct. If PTP appears not to be
+disciplining the clock, check the grandmaster's timescale before assuming a
+fault. A TAI-timescale grandmaster is preferable where you have the choice.
+
+### Already running PTP?
+
+The container deployer detects that and **defaults to leaving it alone**. The
+Interchange kit installs its own `ptp4l@.service` and `phc2sys@.service` unit
+templates, so letting it take over would replace yours and start a second
+`ptp4l` on the same interface — two instances fighting over one clock. Choose
+`keep` unless you specifically want us to manage it.
 
 ---
 

@@ -123,6 +123,45 @@ Two clocks are kept deliberately separate:
 - **Media clock — AoIP PTP.** Follows the grandmaster and never steps the
   system wall clock.
 
+### Your grandmaster — use dedicated hardware
+
+**An AoIP network should have a purpose-built PTP grandmaster.** A GNSS/GPS-
+disciplined hardware clock gives you the three things software on a general-
+purpose server cannot:
+
+- **Traceability** — a real clock class, not a free-running oscillator.
+- **A TAI timescale**, which keeps the whole system out of the ARB problem
+  described below.
+- **Stable holdover** — a disciplined oscillator rides out a GNSS outage; a
+  server's crystal, competing with scheduler jitter, does not.
+
+Most AoIP-capable switches, and every serious broadcast clock product, will do
+this. It is worth the rack unit.
+
+### Interchange never competes for the clock
+
+Our products advertise **`priority1` = 130**. The IEEE 1588 default is 128 and
+**lower wins**, so an Interchange appliance always yields BMCA to any properly
+configured master. It is the **clock of last resort** by design: deploying one
+onto your network cannot take the clock away from your studio grandmaster.
+
+It only becomes grandmaster when it is genuinely alone on the segment — and in
+that state it is an **arbitrary-timescale** clock, which is a fallback, not a
+goal. If you find an Interchange box acting as grandmaster, treat it as a signal
+that the network is missing a real one.
+
+The same applies in reverse: if some other device is acting as grandmaster on a
+free-running internal oscillator — a console, a node, an interface unit that
+elected itself because nothing better existed — everything downstream inherits
+an untraceable clock. Check what is actually mastering your segment:
+
+```bash
+pmc -u -b 0 'GET PARENT_DATA_SET' | grep grandmasterIdentity
+pmc -u -b 0 'GET TIME_PROPERTIES_DATA_SET' | grep ptpTimescale
+```
+
+`ptpTimescale 0` means ARB — see the guard section below.
+
 ### Choosing a topology
 
 This is the part people get wrong, so here are the real options.

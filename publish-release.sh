@@ -55,9 +55,8 @@ else
     --title "Interchange $TAG" \
     --notes "Interchange product artifacts.
 
-Every binary embeds the production issuer public key
-\`02e412906f2a575d25f431899f970d6bb153224a4f0031e5ef9938f9f4ce7277\`
-and is licensable. Verify any download against \`SHA256SUMS\`.
+Every binary in this release is a licensable production build. Verify any
+download against \`SHA256SUMS\`.
 
 Deploy with the one-liner in the README."
 fi

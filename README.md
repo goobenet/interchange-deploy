@@ -61,15 +61,14 @@ token on that same page.
 Unlicensed operation is deliberately capability-limited rather than blocked —
 the software runs so you can commission and test it.
 
-Every published binary embeds the issuer public key
+Licensing is verified offline — nothing phones home, and no network access is
+needed to validate a token.
 
-```
-02e412906f2a575d25f431899f970d6bb153224a4f0031e5ef9938f9f4ce7277
-```
-
-A build without it cannot be licensed. **The deployer verifies this before it
-installs anything and aborts if the key is missing** — the key is compiled in,
-so there is no way to fix it after deployment.
+**The deployer checks that the build it is about to install is licensable, and
+aborts if it is not.** That property is compiled into the binary, so a build
+that fails the check cannot be repaired after deployment — better to stop
+before creating the VM than to hand you an install that silently rejects every
+license.
 
 ---
 

@@ -398,11 +398,11 @@ JSON blob, and each field also as its own retained sub-topic:
 | `running` | Whether PTP is active. |
 | `mode` | Configured mode: `auto` / `follower` / `grandmaster`. |
 | `iface` | Interface PTP is bound to. |
-| `role` | Live role: `listening`, `uncalibrated`, `follower`, `leader`, `grandmaster`. |
+| `role` | Live **media-clock** role, from a fixed vocabulary: `leader`, `follower`, `electing`, `stopped`, `host-managed`. Raw `ptp4l` port states never appear here. |
 | `gm_identity` | Identity of the active grandmaster (ours when leading, the external one when following). |
 | `domain`, `priority1`, `priority2` | Current PTP settings. |
-| `clock_source` | What is disciplining the clock. |
-| `ntp_synced` | Whether the system calendar is NTP-synchronised. |
+| `clock_source` | What disciplines the **calendar**: `NTP` while running, `host` when the host manages the clock, else `stopped`. Never `PTP` — see §1. |
+| `ntp_synced` | Whether the system calendar is NTP-synchronised. Independent of PTP. |
 | `error` | Last PTP error, empty when healthy. |
 
 #### `<stream topic>` — now-playing

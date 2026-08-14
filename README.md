@@ -10,6 +10,12 @@ Audio-over-IP broadcast products from **Optimized Media Group**.
 This repository contains **deployment tooling, documentation and release
 artifacts**. The product source is not public.
 
+> **This repository is a publish endpoint.** The deployer scripts and the
+> documents under `docs/` are copies, maintained in the private source
+> repository alongside the code they describe and synced here at release time.
+> Edits made directly here will be overwritten. Please send corrections to
+> info@optimizedmedia.net rather than opening a pull request against a mirror.
+
 ## Documentation
 
 - **[User Guide](docs/INTERCHANGE-USER-GUIDE.md)** — what each product does,

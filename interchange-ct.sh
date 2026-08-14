@@ -35,7 +35,7 @@ readonly ISSUER_PUBKEY="02e412906f2a575d25f431899f970d6bb153224a4f0031e5ef9938f9
 
 # host-PTP kit (only fetched when you choose --ptp install). Pinned like every
 # other artifact: this one runs as root on the hypervisor itself.
-readonly HOSTPTP_SHA="76f2ab4f38de6c2469f4fa1029b018d2465f594db2f52fe637253cc11ece1e50"
+readonly HOSTPTP_SHA="ba62864d9d4a8d3dff893648f81fe819f8c02e02c8dbb6cf42e1c1e8e7ac6a2d"
 
 # ─── PRODUCT MANIFEST ───────────────────────────────────────────────────────
 # key|template|template sha256|deb|deb sha256|binary sha256|service|port|ctid|hostname|aoip ip

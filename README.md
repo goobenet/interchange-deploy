@@ -7,8 +7,18 @@ Audio-over-IP broadcast products from **Optimized Media Group**.
 | **Interchange Gateway** (`hls2aes67`) | HLS / Icecast → AES67 / Livewire | `:8088` |
 | **Interchange Onramp** (`aes672hls`) | AES67 / Livewire → HLS | `:8080` |
 
-This repository contains **deployment tooling and release artifacts only**. The
-product source is not public.
+This repository contains **deployment tooling, documentation and release
+artifacts**. The product source is not public.
+
+## Documentation
+
+- **[User Guide](docs/INTERCHANGE-USER-GUIDE.md)** — what each product does,
+  configuration, timing, licensing, and the MQTT interface in depth.
+- **[HTTP API Reference](docs/INTERCHANGE-API-REFERENCE.md)** — every endpoint on
+  both appliances. The web UI uses nothing private, so anything it can do, an
+  automation system can do.
+
+Each appliance also serves its own manual at `/manual.html`.
 
 ---
 
